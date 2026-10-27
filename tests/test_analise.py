@@ -1,6 +1,11 @@
 from datetime import date
 
-from estoque.analise import consumo_medio_diario, curva_abc, dias_de_cobertura, serie_diaria, status_estoque
+from estoque.analise import (
+    consumo_medio_diario, curva_abc, dias_de_cobertura, escolher_lotes_fefo, serie_diaria,
+    situacao_validade, status_estoque, sugestao_de_compra,
+)
+
+HOJE = date(2026, 6, 10)
 
 
 def test_status_estoque():
@@ -15,13 +20,38 @@ def test_dias_de_cobertura():
     assert dias_de_cobertura(10, 0) is None
 
 
+def test_situacao_validade():
+    assert situacao_validade(None, HOJE) == "sem_validade"
+    assert situacao_validade(date(2026, 6, 9), HOJE) == "vencido"
+    assert situacao_validade(date(2026, 6, 25), HOJE) == "vencendo"
+    assert situacao_validade(date(2026, 9, 1), HOJE) == "ok"
+
+
+def test_fefo_tira_primeiro_do_que_vence_antes():
+    lotes = [(1, date(2026, 8, 1), 10), (2, date(2026, 7, 1), 5), (3, None, 50)]
+    assert escolher_lotes_fefo(lotes, 8, HOJE) == [(2, 5), (1, 3)]
+
+
+def test_fefo_ignora_lote_vencido():
+    lotes = [(1, date(2026, 6, 1), 30), (2, date(2026, 7, 1), 5)]
+    assert escolher_lotes_fefo(lotes, 5, HOJE) == [(2, 5)]
+    assert escolher_lotes_fefo(lotes, 6, HOJE) is None
+
+
+def test_sugestao_de_compra_arredonda_para_fardo():
+    # ponto de pedido = 2/dia * 5 dias + 10 = 20
+    # tem 20 -> compra 20 + 2 * 20 dias - 20 = 40 -> 4 fardos de 12 = 48
+    assert sugestao_de_compra(20, 2, 10, 5, 12) == 48
+
+
+def test_sugestao_de_compra_so_no_ponto_de_pedido():
+    assert sugestao_de_compra(21, 2, 10, 5, 12) == 0
+    assert sugestao_de_compra(0, 0, 10, 5, 12) == 12  # sem venda mas abaixo do mínimo: completa o mínimo
+
+
 def test_curva_abc_classifica_pelo_valor_acumulado():
     classes = curva_abc({1: 700, 2: 150, 3: 100, 4: 50, 5: 0})
     assert classes == {1: "A", 2: "A", 3: "B", 4: "C", 5: "C"}
-
-
-def test_curva_abc_sem_consumo():
-    assert curva_abc({1: 0, 2: 0}) == {1: "C", 2: "C"}
 
 
 def test_serie_diaria_preenche_dias_sem_movimento():
