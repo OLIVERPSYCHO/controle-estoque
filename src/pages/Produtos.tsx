@@ -1,170 +1,179 @@
 import { useCallback, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { baixarCsv, buscarCategorias, buscarProdutos, criarProduto, editarProduto, excluirProduto } from '../api'
+import { useSearchParams } from 'react-router-dom'
+import {
+  baixarCsv, buscarCategorias, buscarFornecedores, buscarProdutos, criarProduto, editarProduto, enviarImagem,
+  excluirProduto,
+} from '../api'
+import DetalheProduto from '../components/DetalheProduto'
 import Modal from '../components/Modal'
 import ProdutoForm from '../components/ProdutoForm'
 import StatusBadge from '../components/StatusBadge'
+import { useFilial } from '../FilialContext'
 import { useDados } from '../hooks/useDados'
 import type { Produto, ProdutoDados } from '../types'
 import { formatarMoeda } from '../utils/format'
 
 export default function Produtos() {
-  const [busca, setBusca] = useState('')
+  const [params, setParams] = useSearchParams()
+  const busca = params.get('busca') ?? ''
+  const { filialId } = useFilial()
   const [categoria, setCategoria] = useState('')
   const [status, setStatus] = useState('')
-  const [modalAberto, setModalAberto] = useState(false)
-  const [produtoEditando, setProdutoEditando] = useState<Produto | undefined>()
+  const [selecionadoId, setSelecionadoId] = useState<number | null>(null)
+  const [versaoDetalhe, setVersaoDetalhe] = useState(0)
+  const [formulario, setFormulario] = useState<{ produto?: Produto } | null>(null)
 
-  const carregarProdutos = useCallback(() => buscarProdutos(busca, categoria, status), [busca, categoria, status])
-  const produtos = useDados(carregarProdutos)
+  const carregar = useCallback(
+    () => buscarProdutos({ busca, categoria, status, filial_id: filialId }),
+    [busca, categoria, status, filialId],
+  )
+  const produtos = useDados(carregar)
   const categorias = useDados(buscarCategorias)
+  const fornecedores = useDados(buscarFornecedores)
+  const lista = produtos.dados ?? []
 
-  function abrirNovo() {
-    setProdutoEditando(undefined)
-    setModalAberto(true)
+  // se a busca do topo achou um produto só (ex.: leu o código de barras), já abre o detalhe
+  const [buscaFechada, setBuscaFechada] = useState('')
+  const abertoPelaBusca = busca && busca !== buscaFechada && lista.length === 1 ? lista[0].id : null
+  const idAberto = selecionadoId ?? abertoPelaBusca
+
+  function fecharDetalhe() {
+    setSelecionadoId(null)
+    setBuscaFechada(busca)
   }
 
-  function abrirEdicao(produto: Produto) {
-    setProdutoEditando(produto)
-    setModalAberto(true)
-  }
-
-  async function salvar(dados: ProdutoDados) {
-    if (produtoEditando) {
-      await editarProduto(produtoEditando.id, dados)
-    } else {
-      await criarProduto(dados)
-    }
-    setModalAberto(false)
+  async function salvar(dados: ProdutoDados, imagemNova: string | null) {
+    const salvo = formulario?.produto ? await editarProduto(formulario.produto.id, dados) : await criarProduto(dados)
+    if (imagemNova) await enviarImagem(salvo.id, imagemNova)
+    setFormulario(null)
+    setSelecionadoId(salvo.id)
+    setVersaoDetalhe((v) => v + 1)
     produtos.recarregar()
     categorias.recarregar()
   }
 
   async function excluir(produto: Produto) {
-    if (!confirm(`Excluir "${produto.nome}"? O histórico de movimentações dele também será apagado.`)) return
+    if (!confirm(`Excluir "${produto.nome}"? O histórico de movimentações também será apagado.`)) return
     try {
       await excluirProduto(produto.id)
+      setSelecionadoId(null)
       produtos.recarregar()
     } catch (e) {
       alert((e as Error).message)
     }
   }
 
-  async function exportar() {
-    try {
-      await baixarCsv()
-    } catch (e) {
-      alert((e as Error).message)
-    }
-  }
-
-  const lista = produtos.dados ?? []
+  const selecionado = lista.find((p) => p.id === idAberto)
 
   return (
-    <>
-      <div className="titulo-pagina">
-        <h1>Produtos</h1>
-        <div className="botoes">
-          <button className="botao botao-claro" onClick={exportar}>
-            Exportar CSV
-          </button>
-          <button className="botao" onClick={abrirNovo}>
-            + Novo produto
-          </button>
+    <div className={idAberto ? 'consulta com-detalhe' : 'consulta'}>
+      <div className="consulta-lista">
+        <div className="titulo-pagina">
+          <div>
+            <h1>Consulta de Produtos</h1>
+            <p className="texto-fraco">Busque por EAN, nome ou marca do produto.</p>
+          </div>
+          <div className="botoes">
+            <button className="botao botao-claro" onClick={() => baixarCsv(filialId).catch((e) => alert(e.message))}>
+              Exportar CSV
+            </button>
+            <button className="botao" onClick={() => setFormulario({})}>
+              + Novo produto
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="filtros">
-        <input
-          type="search"
-          placeholder="Buscar por nome ou SKU"
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          aria-label="Buscar produto"
-        />
-        <select value={categoria} onChange={(e) => setCategoria(e.target.value)} aria-label="Categoria">
-          <option value="">Todas as categorias</option>
-          {categorias.dados?.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
-          <option value="">Todos os status</option>
-          <option value="ok">Normal</option>
-          <option value="baixo">Abaixo do mínimo</option>
-          <option value="zerado">Sem estoque</option>
-        </select>
-      </div>
+        <div className="filtros">
+          {busca && (
+            <span className="chip chip-filtro">
+              Busca: {busca}
+              <button onClick={() => setParams({})} aria-label="Limpar busca">
+                ×
+              </button>
+            </span>
+          )}
+          <select value={categoria} onChange={(e) => setCategoria(e.target.value)} aria-label="Categoria">
+            <option value="">Todas as categorias</option>
+            {categorias.dados?.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
+            <option value="">Todos os status</option>
+            <option value="ok">Disponível</option>
+            <option value="baixo">Estoque baixo</option>
+            <option value="zerado">Sem estoque</option>
+          </select>
+          <span className="texto-fraco">{lista.length} produtos</span>
+        </div>
 
-      {produtos.erro && <p className="erro">{produtos.erro}</p>}
+        {produtos.erro && <p className="erro">{produtos.erro}</p>}
 
-      <div className="card">
-        {produtos.carregando && !produtos.dados ? (
-          <p className="aviso">Carregando produtos...</p>
-        ) : lista.length === 0 ? (
-          <p className="aviso">Nenhum produto encontrado.</p>
-        ) : (
-          <div className="tabela-container">
-            <table>
+        <div className="painel-tabela">
+          {produtos.carregando && !produtos.dados ? (
+            <p className="texto-fraco">Carregando produtos...</p>
+          ) : lista.length === 0 ? (
+            <p className="texto-fraco">Nenhum produto encontrado.</p>
+          ) : (
+            <table className="tabela-produtos">
               <thead>
                 <tr>
-                  <th>SKU</th>
+                  <th>EAN</th>
                   <th>Produto</th>
-                  <th>Categoria</th>
-                  <th>Saldo</th>
-                  <th>Mínimo</th>
-                  <th>Custo</th>
-                  <th>Valor em estoque</th>
+                  <th>Marca</th>
+                  <th>Estoque</th>
+                  <th>Preço</th>
                   <th>Status</th>
-                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {lista.map((p) => (
-                  <tr key={p.id}>
-                    <td className="sku">{p.sku}</td>
+                  <tr
+                    key={p.id}
+                    className={p.id === idAberto ? 'selecionada' : ''}
+                    onClick={() => setSelecionadoId(p.id)}
+                    tabIndex={0}
+                    onKeyDown={(e) => e.key === 'Enter' && setSelecionadoId(p.id)}
+                  >
+                    <td className="ean">{p.ean}</td>
                     <td>{p.nome}</td>
-                    <td>{p.categoria}</td>
-                    <td>
-                      {p.saldo} {p.unidade}
-                    </td>
-                    <td>{p.estoque_minimo}</td>
-                    <td>{formatarMoeda(p.custo_unitario)}</td>
-                    <td>{formatarMoeda(p.valor_em_estoque)}</td>
+                    <td>{p.marca}</td>
+                    <td>{p.saldo}</td>
+                    <td>{formatarMoeda(p.preco_varejo)}</td>
                     <td>
                       <StatusBadge status={p.status} />
-                    </td>
-                    <td className="acoes">
-                      <Link className="link-acao" to={`/movimentacoes?produto=${p.id}`}>
-                        Movimentar
-                      </Link>
-                      <button className="link-acao" onClick={() => abrirEdicao(p)}>
-                        Editar
-                      </button>
-                      <button className="link-acao link-perigo" onClick={() => excluir(p)}>
-                        Excluir
-                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {modalAberto && (
-        <Modal titulo={produtoEditando ? 'Editar produto' : 'Novo produto'} onFechar={() => setModalAberto(false)}>
+      {idAberto && (
+        <DetalheProduto
+          key={`${idAberto}-${versaoDetalhe}`}
+          produtoId={idAberto}
+          onFechar={fecharDetalhe}
+          onEditar={() => selecionado && setFormulario({ produto: selecionado })}
+          onExcluir={() => selecionado && excluir(selecionado)}
+        />
+      )}
+
+      {formulario && (
+        <Modal titulo={formulario.produto ? 'Editar produto' : 'Novo produto'} onFechar={() => setFormulario(null)}>
           <ProdutoForm
-            produto={produtoEditando}
+            produto={formulario.produto}
             categorias={categorias.dados ?? []}
+            fornecedores={fornecedores.dados ?? []}
             onSalvar={salvar}
-            onCancelar={() => setModalAberto(false)}
+            onCancelar={() => setFormulario(null)}
           />
         </Modal>
       )}
-    </>
+    </div>
   )
 }

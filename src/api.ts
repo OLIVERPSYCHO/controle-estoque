@@ -1,4 +1,7 @@
-import type { Movimentacao, NovaMovimentacao, Painel, Produto, ProdutoDados } from './types'
+import type {
+  Filial, Fornecedor, FornecedorDados, LoteValidade, Movimentacao, NovaMovimentacao, Painel, Pedido,
+  Produto, ProdutoDados, ProdutoDetalhe, ResultadoCodigoBarras, SugestaoFornecedor,
+} from './types'
 
 const CHAVE = 'controle-estoque:workspace'
 
@@ -71,51 +74,82 @@ async function requisicao(url: string, opcoes: RequestInit = {}, tentarDeNovo = 
   throw new Error(mensagem)
 }
 
-async function getJson<T>(url: string, opcoes?: RequestInit): Promise<T> {
-  const resposta = await requisicao(url, opcoes)
+async function get<T>(url: string): Promise<T> {
+  const resposta = await requisicao(url)
   return resposta.json()
 }
 
-export function buscarPainel() {
-  return getJson<Painel>('/api/painel')
+async function enviar<T>(metodo: string, url: string, corpo?: unknown): Promise<T> {
+  const resposta = await requisicao(url, { method: metodo, body: corpo ? JSON.stringify(corpo) : undefined })
+  if (resposta.status === 204) return undefined as T
+  return resposta.json()
 }
 
-export function buscarProdutos(busca = '', categoria = '', status = '') {
-  const params = new URLSearchParams({ busca, categoria, status })
-  return getJson<Produto[]>(`/api/produtos?${params}`)
+// monta a query string ignorando campos vazios
+function query(params: Record<string, string | number | null | undefined>) {
+  const lista = Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined)
+  const texto = new URLSearchParams(lista.map(([k, v]) => [k, String(v)])).toString()
+  return texto ? `?${texto}` : ''
 }
 
-export function buscarCategorias() {
-  return getJson<string[]>('/api/categorias')
+export function urlImagem(produto: { id?: number; produto_id?: number; tem_imagem: boolean; imagem_url: string }) {
+  if (produto.tem_imagem) return `/api/imagens/${produto.id ?? produto.produto_id}`
+  return produto.imagem_url || ''
 }
 
-export function criarProduto(dados: ProdutoDados) {
-  return getJson<Produto>('/api/produtos', { method: 'POST', body: JSON.stringify(dados) })
-}
+// filiais
+export const buscarFiliais = () => get<Filial[]>('/api/filiais')
 
-export function editarProduto(id: number, dados: ProdutoDados) {
-  return getJson<Produto>(`/api/produtos/${id}`, { method: 'PUT', body: JSON.stringify(dados) })
-}
+// produtos
+export const buscarProdutos = (filtros: { busca?: string; categoria?: string; status?: string; filial_id?: number | null } = {}) =>
+  get<Produto[]>(`/api/produtos${query(filtros)}`)
+export const buscarProduto = (id: number, filialId?: number | null) =>
+  get<ProdutoDetalhe>(`/api/produtos/${id}${query({ filial_id: filialId })}`)
+export const buscarCategorias = () => get<string[]>('/api/categorias')
+export const criarProduto = (dados: ProdutoDados) => enviar<Produto>('POST', '/api/produtos', dados)
+export const editarProduto = (id: number, dados: ProdutoDados) => enviar<Produto>('PUT', `/api/produtos/${id}`, dados)
+export const excluirProduto = (id: number) => enviar<void>('DELETE', `/api/produtos/${id}`)
+export const enviarImagem = (id: number, imagem: string) => enviar<void>('PUT', `/api/produtos/${id}/imagem`, { imagem })
+export const consultarCodigoBarras = (ean: string) => get<ResultadoCodigoBarras>(`/api/codigo-barras/${ean}`)
 
-export async function excluirProduto(id: number) {
-  await requisicao(`/api/produtos/${id}`, { method: 'DELETE' })
-}
+// movimentações
+export const buscarMovimentacoes = (filtros: { tipo?: string; produto_id?: number; filial_id?: number | null } = {}) =>
+  get<Movimentacao[]>(`/api/movimentacoes${query(filtros)}`)
+export const registrarMovimentacao = (dados: NovaMovimentacao) =>
+  enviar<Movimentacao[]>('POST', '/api/movimentacoes', dados)
+export const buscarValidades = (filialId?: number | null, dias = 60) =>
+  get<LoteValidade[]>(`/api/validades${query({ filial_id: filialId, dias })}`)
 
-export function buscarMovimentacoes(produtoId?: number) {
-  const filtro = produtoId ? `?produto_id=${produtoId}` : ''
-  return getJson<Movimentacao[]>(`/api/movimentacoes${filtro}`)
-}
+// fornecedores
+export const buscarFornecedores = () => get<Fornecedor[]>('/api/fornecedores')
+export const criarFornecedor = (dados: FornecedorDados) => enviar<Fornecedor>('POST', '/api/fornecedores', dados)
+export const editarFornecedor = (id: number, dados: FornecedorDados) =>
+  enviar<Fornecedor>('PUT', `/api/fornecedores/${id}`, dados)
+export const excluirFornecedor = (id: number) => enviar<void>('DELETE', `/api/fornecedores/${id}`)
 
-export function registrarMovimentacao(dados: NovaMovimentacao) {
-  return getJson<Movimentacao>('/api/movimentacoes', { method: 'POST', body: JSON.stringify(dados) })
-}
+// compras
+export const buscarSugestao = (filialId: number) =>
+  get<SugestaoFornecedor[]>(`/api/compras/sugestao${query({ filial_id: filialId })}`)
+export const buscarPedidos = (filialId?: number | null) => get<Pedido[]>(`/api/pedidos${query({ filial_id: filialId })}`)
+export const criarPedido = (dados: {
+  fornecedor_id: number
+  filial_id: number
+  observacao?: string
+  itens: { produto_id: number; quantidade: number; custo: number }[]
+}) => enviar<Pedido>('POST', '/api/pedidos', dados)
+export const receberPedido = (id: number, itens: { item_id: number; lote_codigo: string; validade: string | null }[]) =>
+  enviar<Pedido>('POST', `/api/pedidos/${id}/receber`, { itens })
+export const cancelarPedido = (id: number) => enviar<Pedido>('POST', `/api/pedidos/${id}/cancelar`)
+
+// painel
+export const buscarPainel = (filialId?: number | null) => get<Painel>(`/api/painel${query({ filial_id: filialId })}`)
 
 export async function restaurarDemonstracao() {
   await requisicao('/api/workspaces/restaurar', { method: 'POST' })
 }
 
-export async function baixarCsv() {
-  const resposta = await requisicao('/api/relatorios/estoque.csv')
+export async function baixarCsv(filialId?: number | null) {
+  const resposta = await requisicao(`/api/relatorios/estoque.csv${query({ filial_id: filialId })}`)
   const url = URL.createObjectURL(await resposta.blob())
   const link = document.createElement('a')
   link.href = url
