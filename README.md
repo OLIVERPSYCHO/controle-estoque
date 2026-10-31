@@ -4,7 +4,7 @@ Sistema web de estoque pensado para um atacado de alimentos e bebidas: consulta 
 
 Trabalhei alguns anos com logística e controle de estoque e muita coisa era feita no papel ou em planilha: conferir validade, saber o que estava acabando, decidir quanto pedir para o fornecedor. A ideia do projeto foi montar o sistema que eu gostaria de ter usado, juntando o que estou estudando de Python e React.
 
-**Demo:** https://controle-estoque-acme-fb18.vercel.app
+**Demo:** https://controle-estoque-wheat-rho.vercel.app
 
 Cada pessoa que abre a demo ganha uma empresa de exemplo própria (o "Atacado Demo", com filiais em Palhoça e São José), já com produtos e 60 dias de histórico. Pode cadastrar, vender, receber pedido e excluir à vontade, isso não afeta os dados de outras pessoas. O botão "Restaurar dados de exemplo" volta tudo ao início.
 
@@ -60,7 +60,7 @@ Precisa de Python 3.11+ e Node 20+.
 ```bash
 # API
 python -m venv .venv
-.venv\Scripts\activate          # no Linux/Mac: source .venv/bin/activate
+.venv\\Scripts\\activate          # no Linux/Mac: source .venv/bin/activate
 pip install -r requirements-dev.txt
 uvicorn api.index:app --reload --port 8000
 
