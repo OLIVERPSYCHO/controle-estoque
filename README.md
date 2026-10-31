@@ -60,7 +60,7 @@ Precisa de Python 3.11+ e Node 20+.
 ```bash
 # API
 python -m venv .venv
-.venv\\Scripts\\activate          # no Linux/Mac: source .venv/bin/activate
+.venv\Scripts\activate          # no Linux/Mac: source .venv/bin/activate
 pip install -r requirements-dev.txt
 uvicorn api.index:app --reload --port 8000
 
